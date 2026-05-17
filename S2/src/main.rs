@@ -3,6 +3,8 @@ use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde::{Deserialize, Serialize};
 use std::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+mod astar;
+mod helper;
 mod protocol;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,7 +48,8 @@ async fn main() {
     let url = "wss://bitdefenders.cvjd.me/ws";
     let (ws, _) = connect_async(url).await.unwrap();
     let (mut write, mut read) = ws.split();
-
+    let mut path_matrix: [[i32; 90]; 51] = [[1; 90]; 51];
+    let mut score_matrix: [[i32; 90]; 51] = [[0; 90]; 51];
     println!("connected");
 
     while let Some(msg) = read.next().await {
@@ -100,6 +103,10 @@ async fn main() {
             Command::StartMatch => {
                 println!("Start match");
                 start_game_args = serde_json::from_value(message.args).unwrap();
+
+                helper::initializeWalls(&mut path_matrix, &start_game_args.state.walls);
+                helper::initializeWalls(&mut score_matrix, &start_game_args.state.walls);
+                score_matrix[(25) as usize][(46) as usize] = 10;
             }
             Command::StartTurn => {
                 println!("Turn started");
@@ -121,18 +128,24 @@ async fn main() {
                     y2 = turn_args.state.heroes[1].y;
                     args2 = serde_json::json!({"hero_id":turn_args.state.heroes[1].id, "x":x2, "y":y2+3});
                 }
-                for wall in turn_args.state.walls {
-                    if wall.x == x1 && wall.y == y1 + 3 {
-                        args1 = serde_json::json!({"hero_id":turn_args.state.heroes[0].id, "x":x1+3,"y":y1})
-                    }
-                    if turn_args.state.heroes.len() > 1
-                        && turn_args.state.heroes[1].owner_id == 0
-                        && wall.y == y2 + 3
-                        && wall.x == x2
-                    {
-                        args2 = serde_json::json!({"hero_id":turn_args.state.heroes[1].id, "x":x2+3, "y":y2});
-                    }
+                // for wall in turn_args.state.walls {
+                // if wall.x == x1 && wall.y == y1 + 3 {
+                //     args1 = serde_json::json!({"hero_id":turn_args.state.heroes[0].id, "x":x1+3,"y":y1})
+                // }
+                let (next_x, next_y) =
+                    helper::nextMove(x1 as usize, y1 as usize, &path_matrix, &score_matrix);
+                println!("{} {}", next_x, next_y);
+                args1 = serde_json::json!({"hero_id":turn_args.state.heroes[0].id, "x":next_x,"y":next_y});
+                if turn_args.state.heroes.len() > 1 && turn_args.state.heroes[1].owner_id == 0
+                // && wall.y == y2 + 3
+                // && wall.x == x2
+                {
+                    let (next_x, next_y) =
+                        helper::nextMove(x2 as usize, y2 as usize, &path_matrix, &score_matrix);
+                    args2 = serde_json::json!({"hero_id":turn_args.state.heroes[1].id, "x":next_x,"y":next_y});
+                    // args2 = serde_json::json!({"hero_id":turn_args.state.heroes[1].id, "x":x2+3, "y":y2});
                 }
+                // }
                 if turn_args.state.heroes.len() > 2 {
                     if turn_args.state.heroes[0].cooldown == 0 {
                         command1 = Command::Shoot;

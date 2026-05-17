@@ -174,4 +174,3 @@ pub struct PongArgs {}
 pub struct WatchArgs {
     pub match_id: String,
 }
-
