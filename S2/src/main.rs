@@ -23,8 +23,8 @@ pub enum Command {
     StartMatch,
     StartTurn,
     Move,
-    // Shoot,
-    // EndMatch,
+    Shoot,
+    EndMatch,
 }
 
 async fn send_command<
@@ -104,12 +104,53 @@ async fn main() {
             Command::StartTurn => {
                 println!("Turn started");
                 turn_args = serde_json::from_value(message.args).unwrap();
+                let x1 = turn_args.state.heroes[0].x;
+                let y1 = turn_args.state.heroes[0].y;
+
+                let mut x2 = 0;
+                let mut y2 = 0;
+
+                let mut command1: Command = Command::Move;
+                let mut command2: Command = Command::Move;
+
+                let mut args1 =
+                    serde_json::json!({"hero_id":turn_args.state.heroes[0].id, "x":x1,"y":y1+3});
+                let mut args2 = serde_json::json!({});
+                if turn_args.state.heroes.len() > 1 {
+                    x2 = turn_args.state.heroes[1].x;
+                    y2 = turn_args.state.heroes[1].y;
+                    args2 = serde_json::json!({"hero_id":turn_args.state.heroes[1].id, "x":x2, "y":y2+3});
+                }
+                for wall in turn_args.state.walls {
+                    if wall.x == x1 && wall.y == y1 + 3 {
+                        args1 = serde_json::json!({"hero_id":turn_args.state.heroes[0].id, "x":x1+3,"y":y1})
+                    }
+                    if turn_args.state.heroes.len() > 1
+                        && turn_args.state.heroes[1].owner_id == 0
+                        && wall.y == y2 + 3
+                        && wall.x == x2
+                    {
+                        args2 = serde_json::json!({"hero_id":turn_args.state.heroes[1].id, "x":x2+3, "y":y2});
+                    }
+                }
+                if turn_args.state.heroes.len() > 2 {
+                    if turn_args.state.heroes[0].cooldown == 0 {
+                        command1 = Command::Shoot;
+                        args1 = serde_json::json!({"hero_id":turn_args.state.heroes[0].id, "x":turn_args.state.heroes[2].x,"y":turn_args.state.heroes[2].y});
+                    }
+                    if turn_args.state.heroes[1].owner_id == 0
+                        && turn_args.state.heroes[1].cooldown == 0
+                    {
+                        command2 = Command::Shoot;
+                        args2 = serde_json::json!({"hero_id":turn_args.state.heroes[1].id, "x":turn_args.state.heroes[2].x,"y":turn_args.state.heroes[2].y});
+                    }
+                }
 
                 if let Err(e) = send_command(
                     &mut write,
                     WebSocketMessage {
-                        command: Command::Move,
-                        args: serde_json::json!({"hero_id":turn_args.state.heroes[0].id, "x":turn_args.state.heroes[0].x, "y":turn_args.state.heroes[0].y+1}),
+                        command: command1,
+                        args: args1,
                     },
                 )
                 .await
@@ -118,21 +159,29 @@ async fn main() {
                     break;
                 }
 
-                if let Err(e) = send_command(
-                    &mut write,
-                    WebSocketMessage {
-                        command: Command::Move,
-                        args: serde_json::json!({"hero_id":turn_args.state.heroes[1].id, "x":turn_args.state.heroes[1].x, "y":turn_args.state.heroes[1].y+1}),
-                    },
-                )
-                .await
-                {
-                    println!("Failed to send Move command: {e}");
-                    break;
+                if turn_args.state.heroes.len() > 1 && turn_args.state.heroes[1].owner_id == 0 {
+                    if let Err(e) = send_command(
+                        &mut write,
+                        WebSocketMessage {
+                            command: command2,
+                            args: args2,
+                        },
+                    )
+                    .await
+                    {
+                        println!("Failed to send Move command: {e}");
+                        break;
+                    }
                 }
             }
             Command::Move => {
                 panic!("Server is sending Move");
+            }
+            Command::Shoot => {
+                panic!("Server is sending Shoot");
+            }
+            Command::EndMatch => {
+                println!("Match has concluded!");
             }
         }
     }

@@ -11,3 +11,4 @@ anyhow = "1.0.102"
 futures-util = "0.3.32"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.1", features = ["full"] }
+rand = "0.10.1"
