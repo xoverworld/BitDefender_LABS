@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-const ROWS: usize = 51;
-const COLS: usize = 90;
+const ROWS: usize = 90;
+const COLS: usize = 51;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct State {
