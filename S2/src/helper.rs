@@ -14,8 +14,12 @@ pub fn initialize_walls(matrice: &mut [[i32; 51]; 90], walls: &Vec<protocol::Wal
     ];
     for wall in walls {
         matrice[wall.y as usize][wall.x as usize] = -50;
-        for (i, j) in directions.iter() {
-            matrice[(wall.y + i) as usize][(wall.x + j) as usize] = -50;
+        for (dy, dx) in directions.iter() {
+            let ny = wall.y + dy;
+            let nx = wall.x + dx;
+            if ny >= 0 && ny < 90 && nx >= 0 && nx < 51 {
+                matrice[ny as usize][nx as usize] = -50;
+            }
         }
     }
 }
@@ -26,22 +30,22 @@ pub fn calculate_score(
     enemies: Vec<protocol::Hero>,
     projectiles: Vec<protocol::Projectile>,
 ) {
-    let mut i = 0;
-    let mut j;
-    while i < 45 {
-        j = 0;
-        while j < 51 {
+    for y in 0..90 {
+        for x in 0..51 {
+            score_matrix[y][x] = path_matrix[y][x];
+        }
+    }
+
+    for i in 0..45 {
+        for j in 0..51 {
             if path_matrix[0 + i][j] > 0 {
-                score_matrix[0 + i][j] += (i / 9) as i32;
+                score_matrix[0 + i][j] += i as i32 / 9;
             }
             if path_matrix[89 - i][j] > 0 {
-                score_matrix[89 - i][j] += (i / 9) as i32;
+                score_matrix[89 - i][j] += i as i32 / 9;
             }
-            j += 1;
         }
-        i += 1;
     }
-    // println!("{:?}", score_matrix);
 
     let directions: [(i32, i32); 8] = [
         (0, 1),
@@ -53,76 +57,96 @@ pub fn calculate_score(
         (1, -1),
         (-1, 1),
     ];
+
     for enemy in enemies {
-        if enemy.cooldown == 0 {
-            score_matrix[enemy.x as usize][enemy.y as usize] -= 10;
-            for (x, y) in directions {
-                score_matrix[(enemy.x + x) as usize][(enemy.y + y) as usize] -= 8;
+        let ey = enemy.y as usize;
+        let ex = enemy.x as usize;
+
+        score_matrix[ey][ex] -= 10;
+        for (dy, dx) in directions {
+            let ny = enemy.y + dy;
+            let nx = enemy.x + dx;
+            if ny >= 0 && ny < 90 && nx >= 0 && nx < 51 {
+                score_matrix[ny as usize][nx as usize] -= 8;
             }
-        } else {
-            score_matrix[enemy.x as usize][enemy.y as usize] += 2;
-            for (x, y) in directions {
-                score_matrix[(enemy.x + x) as usize][(enemy.y + y) as usize] += 4;
+        }
+        if enemy.cooldown <= 1 {
+            for dx in -6..7 {
+                for dy in -6..7 {
+                    let nx = enemy.x + dx;
+                    let ny = enemy.y + dy;
+                    if ny >= 0 && ny < 90 && nx >= 0 && nx < 51 {
+                        score_matrix[ny as usize][nx as usize] -= 8;
+                    }
+                }
+            }
+        } else if enemy.cooldown == 2 {
+            for dx in -3..4 {
+                for dy in -3..4 {
+                    let nx = enemy.x + dx;
+                    let ny = enemy.y + dy;
+                    if ny >= 0 && ny < 90 && nx >= 0 && nx < 51 {
+                        score_matrix[ny as usize][nx as usize] -= 8;
+                    }
+                }
             }
         }
     }
+
     for projectile in projectiles {
-        score_matrix[projectile.x as usize][projectile.y as usize] -= 5;
-        if (projectile.x - projectile.origin_x).abs() > (projectile.y - projectile.origin_y).abs() {
-            if projectile.y - projectile.origin_y > 0 {
-                //jos
-                let mut i = 0;
-                let mut j;
-                while i < 6 {
-                    j = -6;
-                    while j < 6 {
-                        score_matrix[(projectile.x + j) as usize][(projectile.y + i) as usize] -=
-                            10;
-                        j += 1;
+        let py = projectile.y;
+        let px = projectile.x;
+        score_matrix[py as usize][px as usize] -= 5;
+
+        let dx = projectile.x - projectile.origin_x;
+        let dy = projectile.y - projectile.origin_y;
+
+        if dx.abs() > dy.abs() {
+            if dy > 0 {
+                // jos
+                for i in 0..6 {
+                    for j in -6..6 {
+                        let ny = py + i;
+                        let nx = px + j;
+                        if ny >= 0 && ny < 90 && nx >= 0 && nx < 51 {
+                            score_matrix[ny as usize][nx as usize] -= 10;
+                        }
                     }
-                    i += 1;
                 }
             } else {
-                //sus
-                let mut i = 0;
-                let mut j;
-                while i < 6 {
-                    j = -6;
-                    while j < 6 {
-                        score_matrix[(projectile.x + j) as usize][(projectile.y - i) as usize] -=
-                            10;
-                        j += 1;
+                // sus
+                for i in 0..6 {
+                    for j in -6..6 {
+                        let ny = py - i;
+                        let nx = px + j;
+                        if ny >= 0 && ny < 90 && nx >= 0 && nx < 51 {
+                            score_matrix[ny as usize][nx as usize] -= 10;
+                        }
                     }
-                    i += 1;
                 }
             }
-        }
-        if (projectile.x - projectile.origin_x).abs() < (projectile.y - projectile.origin_y).abs() {
-            if projectile.x - projectile.origin_x > 0 {
-                //stanga
-                let mut i = 0;
-                let mut j;
-                while i < 6 {
-                    j = -6;
-                    while j < 6 {
-                        score_matrix[(projectile.x - i) as usize][(projectile.y + j) as usize] -=
-                            10;
-                        j += 1;
+        } else {
+            if dx > 0 {
+                // dreapta
+                for i in 0..6 {
+                    for j in -6..6 {
+                        let ny = py + j;
+                        let nx = px + i;
+                        if ny >= 0 && ny < 90 && nx >= 0 && nx < 51 {
+                            score_matrix[ny as usize][nx as usize] -= 10;
+                        }
                     }
-                    i += 1;
                 }
             } else {
-                //dreapta
-                let mut i = 0;
-                let mut j;
-                while i < 6 {
-                    j = -6;
-                    while j < 6 {
-                        score_matrix[(projectile.x + i) as usize][(projectile.y + j) as usize] -=
-                            10;
-                        j += 1;
+                // stanga
+                for i in 0..6 {
+                    for j in -6..6 {
+                        let ny = py + j;
+                        let nx = px - i;
+                        if ny >= 0 && ny < 90 && nx >= 0 && nx < 51 {
+                            score_matrix[ny as usize][nx as usize] -= 10;
+                        }
                     }
-                    i += 1;
                 }
             }
         }
@@ -135,34 +159,44 @@ pub fn next_move(
     path_matrix: &[[i32; 51]; 90],
     score_matrix: &[[i32; 51]; 90],
 ) -> (usize, usize) {
-    let mut max = -100;
-    let mut final_x = 0;
-    let mut final_y = 0;
+    let mut max_score = -100;
+    let mut min_distance = i32::MAX;
+    let mut final_x = initial_x;
+    let mut final_y = initial_y;
 
-    let mut r = 1;
-    let mut c = 1;
-    while r < 90 {
-        c = 1;
-        while c < 51 {
-            if score_matrix[r][c] > max && path_matrix[r][c] > 0 {
-                max = score_matrix[r][c];
-                final_x = r;
-                final_y = c;
+    let mut y = 1;
+    while y < 90 {
+        let mut x = 1;
+        while x < 51 {
+            let current_score = score_matrix[y][x];
+            if current_score >= max_score && path_matrix[y][x] > 0 {
+                let distance =
+                    (y as i32 - initial_y as i32).abs() + (x as i32 - initial_x as i32).abs();
+
+                if current_score > max_score
+                    || (current_score == max_score && distance < min_distance)
+                {
+                    max_score = current_score;
+                    min_distance = distance;
+                    final_x = x;
+                    final_y = y;
+                }
             }
-            c += 3;
+            x += 3;
         }
-        r += 3;
+        y += 3;
     }
-    let moves: Option<Vec<(usize, usize)>> =
-        astar::find_path_macro_grid(&path_matrix, (initial_x, initial_y), (final_x, final_y));
-    // println!("target: {:?}", (final_x, final_y));
+
+    let moves =
+        astar::find_path_macro_grid(&path_matrix, (initial_y, initial_x), (final_y, final_x));
+
     match moves {
-        Some(_val) => {
-            if _val.len() > 1 {
-                return _val[1];
+        Some(path) => {
+            if path.len() > 1 {
+                return path[1];
             }
-            return _val[0];
+            return path[0];
         }
-        None => return (initial_x, initial_y),
+        None => return (initial_y, initial_x),
     }
 }

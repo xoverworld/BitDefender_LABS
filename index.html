@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bit Defenders - Matrix Debugger</title>
+    <style>
+        body {
+            background-color: #1e1e1e; color: #fff; font-family: monospace;
+            display: flex; flex-direction: column; align-items: center; padding: 20px;
+        }
+        #status {
+            margin-bottom: 10px; padding: 5px 15px; border-radius: 5px; background-color: #f44336;
+        }
+        .connected { background-color: #4CAF50 !important; }
+        
+        /* Playback Controls */
+        #controls {
+            display: flex; gap: 10px; margin-bottom: 15px; align-items: center;
+        }
+        button {
+            background-color: #333; color: white; border: 1px solid #555; 
+            padding: 5px 15px; cursor: pointer; font-family: monospace; border-radius: 3px;
+        }
+        button:hover { background-color: #555; }
+        button:disabled { background-color: #222; color: #555; cursor: not-allowed; }
+        
+        #turn-indicator {
+            font-size: 16px; font-weight: bold; min-width: 120px; text-align: center;
+        }
+
+        /* Canvas & Legend */
+        .container { display: flex; gap: 20px; align-items: flex-start; }
+        canvas { border: 1px solid #444; image-rendering: pixelated; }
+        
+        .legend { background: #2a2a2a; padding: 15px; border-radius: 5px; border: 1px solid #444; }
+        .legend-item { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .color-box { width: 15px; height: 15px; border-radius: 2px; }
+
+        #tooltip {
+            position: absolute; background: rgba(0,0,0,0.9); padding: 8px; 
+            border: 1px solid #666; pointer-events: none; display: none; z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="status">Disconnected from ws://127.0.0.1:9001</div>
+    
+    <div id="controls">
+        <button id="btn-first">|&lt; First</button>
+        <button id="btn-prev">&lt; Prev</button>
+        <div id="turn-indicator">Turn: 0 / 0</div>
+        <button id="btn-next">Next &gt;</button>
+        <button id="btn-latest">Latest &gt;|</button>
+    </div>
+
+    <div class="container">
+        <canvas id="grid" width="510" height="900"></canvas>
+        
+        <div class="legend">
+            <h3>Legend</h3>
+            <div class="legend-item"><div class="color-box" style="background: #222;"></div>Wall (-50)</div>
+            <div class="legend-item"><div class="color-box" style="background: red;"></div>Danger (&lt; 0)</div>
+            <div class="legend-item"><div class="color-box" style="background: green;"></div>Target (&gt; 0)</div>
+            <hr style="border-color:#444">
+            <div class="legend-item"><div class="color-box" style="background: #00bcd4; border-radius: 50%;"></div>My Hero</div>
+            <div class="legend-item"><div class="color-box" style="background: #ff9800; border-radius: 50%;"></div>Enemy Hero</div>
+            <div class="legend-item"><div class="color-box" style="background: #ffeb3b; border-radius: 50%;"></div>Projectile</div>
+        </div>
+    </div>
+    
+    <div id="tooltip"></div>
+
+    <script>
+        const canvas = document.getElementById('grid');
+        const ctx = canvas.getContext('2d');
+        const statusDiv = document.getElementById('status');
+        const tooltip = document.getElementById('tooltip');
+        const turnIndicator = document.getElementById('turn-indicator');
+        
+        const COLS = 51; // X axis
+        const ROWS = 90; // Y axis
+        const CELL_SIZE = 10;
+        
+        // Timeline State
+        let timeline = [];
+        let viewingIndex = -1; // -1 means we are viewing the latest available turn
+        let isTrackingLatest = true;
+
+        // UI Controls
+        document.getElementById('btn-first').onclick = () => setViewIndex(0);
+        document.getElementById('btn-prev').onclick = () => setViewIndex(viewingIndex - 1);
+        document.getElementById('btn-next').onclick = () => setViewIndex(viewingIndex + 1);
+        document.getElementById('btn-latest').onclick = () => {
+            isTrackingLatest = true;
+            setViewIndex(timeline.length - 1);
+        };
+
+        function setViewIndex(index) {
+            if (timeline.length === 0) return;
+            
+            viewingIndex = Math.max(0, Math.min(index, timeline.length - 1));
+            
+            // If we manually navigated away from the end, stop auto-scrolling
+            if (viewingIndex < timeline.length - 1) {
+                isTrackingLatest = false;
+            } else {
+                isTrackingLatest = true;
+            }
+            
+            updateUI();
+            drawFrame(timeline[viewingIndex]);
+        }
+
+        function updateUI() {
+            if (timeline.length === 0) return;
+            const currentData = timeline[viewingIndex];
+            turnIndicator.textContent = `Turn: ${currentData.turn} / ${timeline[timeline.length - 1].turn}`;
+            
+            document.getElementById('btn-first').disabled = viewingIndex === 0;
+            document.getElementById('btn-prev').disabled = viewingIndex === 0;
+            document.getElementById('btn-next').disabled = viewingIndex === timeline.length - 1;
+            document.getElementById('btn-latest').disabled = isTrackingLatest;
+        }
+
+        function connect() {
+            const ws = new WebSocket('ws://127.0.0.1:9001');
+
+            ws.onopen = () => {
+                statusDiv.textContent = "Connected (Live)";
+                statusDiv.classList.add('connected');
+            };
+
+            // ADD THIS: Force the socket to close if it errors out
+            ws.onerror = (err) => {
+                ws.close();
+            };
+
+            ws.onclose = () => {
+                statusDiv.textContent = "Disconnected - Retrying in 2s...";
+                statusDiv.classList.remove('connected');
+                // Auto-reconnect
+                setTimeout(connect, 2000); 
+            };
+
+            ws.onmessage = (event) => {
+                const turnData = JSON.parse(event.data);
+                timeline.push(turnData);
+                
+                if (isTrackingLatest) {
+                    viewingIndex = timeline.length - 1;
+                    updateUI();
+                    drawFrame(turnData);
+                } else {
+                    updateUI();
+                }
+            };
+        }
+
+        function drawFrame(data) {
+            const matrix = data.matrix;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 1. Draw the Heatmap
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    const val = matrix[y][x];
+                    
+                    if (val <= -50) {
+                        ctx.fillStyle = '#222'; // Wall
+                    } else if (val < 0) {
+                        let intensity = Math.min(255, Math.abs(val) * 8); 
+                        ctx.fillStyle = `rgb(255, ${255 - intensity}, ${255 - intensity})`;
+                    } else if (val > 0) {
+                        let intensity = Math.min(255, val * 8);
+                        ctx.fillStyle = `rgb(${255 - intensity}, 255, ${255 - intensity})`;
+                    } else {
+                        ctx.fillStyle = '#fff';
+                    }
+                    
+                    ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+                    ctx.strokeRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                }
+            }
+
+            // Helper to draw a centered circle (Because entities occupy 3x3 tiles, this draws in the center)
+            const drawEntity = (coord, color) => {
+                const px = (coord[0] * CELL_SIZE) + (CELL_SIZE / 2);
+                const py = (coord[1] * CELL_SIZE) + (CELL_SIZE / 2);
+                
+                ctx.beginPath();
+                ctx.arc(px, py, CELL_SIZE, 0, 2 * Math.PI); // Radius is 1 full cell
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            };
+
+            // 2. Draw Entities
+            data.my_heroes.forEach(pos => drawEntity(pos, '#00bcd4')); // Cyan
+            data.enemy_heroes.forEach(pos => drawEntity(pos, '#ff9800')); // Orange
+            
+            data.projectiles.forEach(pos => {
+                const px = (pos[0] * CELL_SIZE) + (CELL_SIZE / 2);
+                const py = (pos[1] * CELL_SIZE) + (CELL_SIZE / 2);
+                ctx.beginPath();
+                ctx.arc(px, py, CELL_SIZE / 2, 0, 2 * Math.PI); // Projectiles are smaller
+                ctx.fillStyle = '#ffeb3b'; // Yellow
+                ctx.fill();
+                ctx.stroke();
+            });
+        }
+
+        // Hover Tooltip Logic
+        canvas.addEventListener('mousemove', (e) => {
+            if (timeline.length === 0 || viewingIndex === -1) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            const x = Math.floor(mouseX / CELL_SIZE);
+            const y = Math.floor(mouseY / CELL_SIZE);
+            
+            if (y >= 0 && y < ROWS && x >= 0 && x < COLS) {
+                const data = timeline[viewingIndex];
+                const score = data.matrix[y][x];
+                
+                tooltip.style.display = 'block';
+                tooltip.style.left = (e.pageX + 15) + 'px';
+                tooltip.style.top = (e.pageY + 15) + 'px';
+                tooltip.innerHTML = `X: ${x}<br>Y: ${y}<br>Score: ${score}`;
+            }
+        });
+
+        canvas.addEventListener('mouseout', () => {
+            tooltip.style.display = 'none';
+        });
+
+        connect();
+    </script>
+</body>
+</html>
